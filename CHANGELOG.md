@@ -1,3 +1,5 @@
+> **Nota de seguridad / RLS (2026-11-20):** Auditoría y restauración de política `no_public_access` y permisos `service_role` (`SELECT, INSERT, UPDATE, DELETE`) en `public.event_participations`, `public.events_master` y `public.performances` en producción (`oodzpkloxnylzauimvua`), sobre la base sincronizada en `main` @ `592672f` (ver `docs/operations/FIXES_APPLIED.md`).
+
 > **Nota de higiene del repo (2026-10-12):** El commit `0ff1d07` contiene
 > `tests/helpers/README.md` (nuevo) pero su mensaje dice `refactor(tests)`
 > en vez de `docs(tests)`. El contenido es correcto; solo el mensaje del

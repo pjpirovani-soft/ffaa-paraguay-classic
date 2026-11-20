@@ -1600,5 +1600,31 @@ consumen deben tolerar strings numéricos y convertirlos.
   - No requirió modificaciones: los registros seed de `events_master` ya incluyen `name`, `legacy_event_id`, `start_date`, `end_date` y `metadata`, por lo que `getMyParticipations` resuelve `event_week_code` y `event_sem_label` tanto contra Supabase real como contra el fallback en memoria.
 
 **Rollback:** Revertir los cambios en `src/controllers/events-v2.controller.js`, `src/controllers/performances.controller.js`, `js/views.js` y `css/views.css`.
+---
 
+### 🛡️ FIX-RLS-EVENTS-PERFORMANCES — Auditoría y Restauración RLS (`event_participations`, `events_master`, `performances`)
 
+**Fecha:** 2026-11-20  
+**Alcance:** Seguridad de base de datos en producción (`oodzpkloxnylzauimvua`) y documentación del repositorio (base sincronizada en `main` @ `592672f`).  
+**Archivos:** `docs/operations/FIXES_APPLIED.md`, `CHANGELOG.md`  
+**Estado:** ✅ APLICADO EN BD (`oodzpkloxnylzauimvua`)
+
+**Problema Detectado:**
+1. Las tablas `public.event_participations`, `public.events_master` y `public.performances` tenían RLS habilitado (`relrowsecurity = true`, `relforcerowsecurity = false`), pero no presentaban políticas activas en `pg_policies`.
+2. Aunque el bloqueo por defecto (`DENY ALL` para roles no privilegiados) impedía lectura/escritura pública, faltaba aplicar la política estándar del repositorio (`no_public_access`) y confirmar explícitamente los privilegios `GRANT` para `service_role`.
+
+**Cambios Aplicados:**
+- **Verificación de acceso y código:**
+  - Confirmado en `src/` que las consultas a `event_participations`, `events_master` y `performances` se realizan desde controladores de backend (`events-v2.controller.js`, `events-v2-bm.controller.js`, `export.controller.js`, `veteran.controller.js`, `performances.controller.js`), sin acceso directo desde `public/`.
+- **Políticas RLS y permisos en producción (`oodzpkloxnylzauimvua`):**
+  - Asegurado `ENABLE ROW LEVEL SECURITY` y creada la política `no_public_access` (`FOR ALL TO public USING (false) WITH CHECK (false)`) en `public.event_participations`, `public.events_master` y `public.performances`, siguiendo el patrón del proyecto (`sql/027`, `sql/036`, `sql/041`, `sql/045`).
+  - Verificados y aplicados `GRANT SELECT, INSERT, UPDATE, DELETE` a `service_role` en las tres tablas.
+  - Eliminado el archivo temporal local `rls_policies.sql`.
+- **Sincronización de repositorio:**
+  - Ambas copias locales (`/home/pedro-pirovani/projects/ffaa-paraguay-classic` y `/home/pedro-pirovani/Proyectos/ffaa-paraguay-classic`) actualizadas mediante `git pull --ff-only` al commit `592672f` (`feat(performances): enrich history records with event metadata`).
+
+**Pendientes Operativos Manuales:**
+- Revocar en Supabase el token de acceso CLI expuesto en la sesión si no se rotó aún.
+- Validar en producción el comportamiento de endpoints dependientes (`GET /api/events-v2/mine`, `/api/performances/history`, `/api/performances/my-history`, etc.).
+
+**Rollback:** Si fuese necesario ajustar políticas o permisos en la base de datos, administrar mediante migración/SQL explícito sobre `pg_policies` y `GRANT`/`REVOKE` en `oodzpkloxnylzauimvua` (sin alterar datos ni tablas de respaldo).
