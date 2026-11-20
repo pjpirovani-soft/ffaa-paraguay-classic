@@ -997,22 +997,103 @@ function formatHistorialDatePY(iso) {
 }
 
 function resolveHistorialEventHeader(record) {
-  let weekCode = record.event_week_code || null;
-  let semLabel = record.event_sem_label || null;
-
-  const fallbackText = `${record.event_legacy_id || ''} ${record.event_name || ''}`;
-  if (!weekCode) {
-    const wMatch = fallbackText.match(/\b(20\d{2}-W\d{2})\b/i);
-    if (wMatch) weekCode = wMatch[1].toUpperCase();
+  if (!record || typeof record !== 'object') {
+    return 'Sin evento';
   }
-  if (!semLabel) {
-    const semMatch = fallbackText.match(/\bSEM\s*0*(\d{1,2})\b/i);
-    if (semMatch) semLabel = `SEM ${String(Number(semMatch[1])).padStart(2, '0')}`;
+
+  const parseMeta = (raw) => {
+    if (!raw) return {};
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+      } catch (_) {
+        return {};
+      }
+    }
+    return {};
+  };
+
+  const meta = parseMeta(record.metadata);
+  const eventMeta = parseMeta(record.event_metadata);
+
+  const normalizeWeekNum = (num) => {
+    const n = Number(num);
+    if (Number.isInteger(n) && n >= 1 && n <= 53) {
+      return `W${String(n).padStart(2, '0')}`;
+    }
+    return null;
+  };
+
+  const extractWeekFromValue = (val, allowBareNumber = false) => {
+    if (val == null) return null;
+    if (typeof val === 'number') {
+      return allowBareNumber ? normalizeWeekNum(val) : null;
+    }
+    if (typeof val !== 'string') return null;
+    const text = val.trim();
+    if (!text) return null;
+
+    const wMatch = text.match(/\b(?:20\d{2}-)?W0?(\d{1,2})\b/i);
+    if (wMatch) {
+      const w = normalizeWeekNum(wMatch[1]);
+      if (w) return w;
+    }
+
+    const semMatch = text.match(/\bSEM\s*0*(\d{1,2})\b/i);
+    if (semMatch) {
+      const w = normalizeWeekNum(semMatch[1]);
+      if (w) return w;
+    }
+
+    if (allowBareNumber && /^\d{1,2}$/.test(text)) {
+      return normalizeWeekNum(text);
+    }
+
+    return null;
+  };
+
+  const weekCandidates = [
+    [meta.iso_week, true],
+    [meta.week_code, true],
+    [meta.week, true],
+    [meta.week_number, true],
+    [meta.sem_label, true],
+    [meta.sem, true],
+    [eventMeta.iso_week, true],
+    [eventMeta.week_code, true],
+    [eventMeta.week, true],
+    [eventMeta.week_number, true],
+    [eventMeta.sem_label, true],
+    [eventMeta.sem, true],
+    [record.event_week_code, true],
+    [record.event_sem_label, true],
+    [record.event_legacy_id, false],
+    [record.event_name, false]
+  ];
+
+  let shortWeek = null;
+  for (const [candidate, allowBare] of weekCandidates) {
+    shortWeek = extractWeekFromValue(candidate, allowBare);
+    if (shortWeek) break;
+  }
+
+  const rawStart = record.event_start_date || meta.start_date || eventMeta.start_date || null;
+  const rawEnd = record.event_end_date || meta.end_date || eventMeta.end_date || null;
+  const startStr = formatHistorialDatePY(rawStart);
+  const endStr = formatHistorialDatePY(rawEnd);
+
+  let dateRange = null;
+  if (startStr && endStr && startStr !== endStr) {
+    dateRange = `${startStr} – ${endStr}`;
+  } else if (startStr || endStr) {
+    dateRange = startStr || endStr;
   }
 
   const parts = [];
-  if (weekCode) parts.push(weekCode);
-  if (semLabel) parts.push(semLabel);
+  if (shortWeek) parts.push(shortWeek);
+  if (dateRange) parts.push(dateRange);
 
   if (parts.length > 0) {
     return parts.join(' · ');
@@ -7008,6 +7089,7 @@ window.loadExportView = loadExportView;
 window.loadOwnerPanel = loadOwnerPanel;
 window.loadHistorial = loadHistorial;
 window.displayHistorial = displayHistorial;
+window.resolveHistorialEventHeader = resolveHistorialEventHeader;
 window.loadPlanesView = loadPlanesView;
 window.loadUserPlanes = loadUserPlanes;
 if (typeof loadPersonalProfile === 'function') {
