@@ -979,11 +979,54 @@ function loadHistorial() {
   });
 }
 
+function formatHistorialDatePY(iso) {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const tz = (typeof TZ_PY === 'string' && TZ_PY) ? TZ_PY : 'America/Asuncion';
+    return d.toLocaleDateString('es-PY', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: tz
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveHistorialEventHeader(record) {
+  let weekCode = record.event_week_code || null;
+  let semLabel = record.event_sem_label || null;
+
+  const fallbackText = `${record.event_legacy_id || ''} ${record.event_name || ''}`;
+  if (!weekCode) {
+    const wMatch = fallbackText.match(/\b(20\d{2}-W\d{2})\b/i);
+    if (wMatch) weekCode = wMatch[1].toUpperCase();
+  }
+  if (!semLabel) {
+    const semMatch = fallbackText.match(/\bSEM\s*0*(\d{1,2})\b/i);
+    if (semMatch) semLabel = `SEM ${String(Number(semMatch[1])).padStart(2, '0')}`;
+  }
+
+  const parts = [];
+  if (weekCode) parts.push(weekCode);
+  if (semLabel) parts.push(semLabel);
+
+  if (parts.length > 0) {
+    return parts.join(' · ');
+  }
+  return record.event_name || record.event_legacy_id || record.event_id || 'Sin evento';
+}
+
 function displayHistorial(history) {
   const container = document.getElementById('historialContent');
   if (!container) return;
 
-  const historyArray = Array.isArray(history) ? history : [];
+  const historyArray = Array.isArray(history)
+    ? history.filter(item => item && typeof item === 'object')
+    : [];
 
   if (historyArray.length === 0) {
     container.innerHTML = `
@@ -995,16 +1038,50 @@ function displayHistorial(history) {
     return;
   }
 
-  container.innerHTML = historyArray.map(record => `
+  container.innerHTML = historyArray.map(record => {
+    const headerLabel = resolveHistorialEventHeader(record);
+    const eventName = record.event_name ? String(record.event_name).trim() : '';
+    const showSubName = Boolean(eventName && eventName !== headerLabel);
+
+    const startStr = formatHistorialDatePY(record.event_start_date);
+    const endStr = formatHistorialDatePY(record.event_end_date);
+    const createdStr = formatHistorialDatePY(record.created_at);
+
+    let eventDateLabel = 'N/A';
+    if (startStr && endStr && startStr !== endStr) {
+      eventDateLabel = `${startStr} – ${endStr} (PY)`;
+    } else if (startStr || endStr) {
+      eventDateLabel = `${startStr || endStr} (PY)`;
+    } else if (createdStr) {
+      eventDateLabel = `${createdStr} (PY)`;
+    }
+
+    let isOutsideEventWindow = false;
+    if (createdStr && (record.event_start_date || record.event_end_date)) {
+      const createdMs = new Date(record.created_at).getTime();
+      const startMs = record.event_start_date ? new Date(record.event_start_date).getTime() : NaN;
+      const endMs = record.event_end_date ? new Date(record.event_end_date).getTime() : NaN;
+      if (!Number.isNaN(createdMs)) {
+        if (!Number.isNaN(startMs) && createdMs < startMs) isOutsideEventWindow = true;
+        if (!Number.isNaN(endMs) && createdMs > endMs) isOutsideEventWindow = true;
+      }
+    }
+
+    const rawStatus = record.status ? String(record.status).toUpperCase() : 'PENDING';
+    const statusClass = rawStatus.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+    return `
 <div class="historial-item">
-<h4>${escapeHTML(record.event_id || 'Sin evento')}</h4>
-<p><strong>Tokens:</strong> ${record.tokens ?? 0}</p>
-<p><strong>Días conectado:</strong> ${record.days_connected ?? 0}</p>
-<p><strong>Estado:</strong> <span class="status-badge status-${(record.status || 'NEGRO').toLowerCase()}">${record.status || 'NEGRO'}</span></p>
-<p><strong>Fecha:</strong> ${record.created_at ? new Date(record.created_at).toLocaleDateString() : 'N/A'}</p>
-${record.notes ? `<p><strong>Notas:</strong> ${escapeHTML(record.notes)}</p>` : ''}
-</div>
-`).join('');
+  <h4>${escapeHTML(headerLabel)}</h4>
+  ${showSubName ? `<p class="historial-event-name">${escapeHTML(eventName)}</p>` : ''}
+  <p><strong>Tokens:</strong> ${record.tokens ?? 0}</p>
+  <p><strong>Días conectado:</strong> ${record.days_connected ?? 0}</p>
+  <p><strong>Estado:</strong> <span class="status-badge status-${statusClass}">${escapeHTML(rawStatus)}</span></p>
+  <p><strong>Fecha del evento:</strong> ${escapeHTML(eventDateLabel)}</p>
+  ${isOutsideEventWindow ? `<p class="historial-load-date"><strong>Cargado:</strong> ${escapeHTML(createdStr)} (PY)</p>` : ''}
+  ${record.notes ? `<p><strong>Notas:</strong> ${escapeHTML(record.notes)}</p>` : ''}
+</div>`;
+  }).join('');
 }
 // ========== FIN HISTORIAL ==========
 

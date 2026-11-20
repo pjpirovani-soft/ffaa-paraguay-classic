@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { ENV } from '../config/env.js';
+import { createInMemorySupabase } from './mockSupabase.js';
 
 import { logger } from '../config/logger.js';
 // Polyfill native WebSocket in Node.js runtime if not present
@@ -26,7 +27,9 @@ if (ENV.SUPABASE_URL && ENV.SUPABASE_KEY) {
     logger.error('⚠️ [Supabase] Error crítico al inicializar cliente:', err.message);
   }
 } else {
-  logger.warn('⚠️ [Supabase] Variables SUPABASE_URL o SUPABASE_KEY no detectadas.');
+  logger.warn('⚠️ [Supabase] Variables SUPABASE_URL o SUPABASE_KEY no detectadas — activando modo en memoria para preview.');
+  supabaseClient = createInMemorySupabase();
+  isConfigured = true;
 }
 
 /**

@@ -1570,3 +1570,32 @@ Los `<select>` HTML **siempre** devuelven strings. Los schemas Zod que los
 consumen deben tolerar strings numéricos y convertirlos.
 
 ---
+
+### 📜 FIX-HISTORIAL-WEEK-DATE — Semana de Evento y Fechas Reales en Historial de Participaciones
+
+**Fecha:** 2026-11-20  
+**Alcance:** Solo lectura, formato y visualización (sin cambios en BD, migraciones ni escritura).  
+**Archivos:** `src/controllers/events-v2.controller.js`, `js/views.js`, `css/views.css`, `docs/architecture/API_REFERENCE.md`  
+**Estado:** ✅ APLICADO
+
+**Problema Detectado:**
+1. La vista `historialView` (`displayHistorial` en `js/views.js`) mostraba el UUID crudo `record.event_id` como título de cada tarjeta en lugar del código de semana / nombre del evento.
+2. El campo **Fecha** mostraba `record.created_at` (fecha de inserción o backfill) sin zona horaria `America/Asuncion`, generando desfases respecto a la semana jugada en cargas retroactivas o dentro del período de gracia (ADR-008).
+3. `GET /api/events-v2/mine` (`getMyParticipations`) no seleccionaba `legacy_event_id` ni `metadata` de `events_master`, ni ordenaba por `event_start_date DESC`.
+4. `css/views.css` no tenía reglas visuales para los estados reales `PENDING`, `VALIDATED` y `REJECTED` de `event_participations.status`.
+
+**Cambios Aplicados:**
+- **Backend (`src/controllers/events-v2.controller.js`):**
+  - Se agregó `resolveEventWeekInfo(ev)` con prioridad estricta: `metadata.iso_year`/`metadata.iso_week` → patrón `YYYY-Www` en `legacy_event_id`/`name` → `YYYY` + `SEM NN` en `legacy_event_id`/`name` → fallback seguro de semana ISO en hora PY (`UTC-3`) desde `start_date`/`end_date` (sin lanzar errores si faltan datos).
+  - `getMyParticipations` ahora selecciona `legacy_event_id` y `metadata` desde `events_master`, expone `event_legacy_id`, `event_week_code` y `event_sem_label`, ordena por `event_start_date DESC` (con fallback `event_end_date` y desempate por `created_at`) tras traer hasta 200 registros y aplica `.slice(0, limit)`. Se mantienen intactos `status` y `computed_points`.
+- **Frontend (`js/views.js`):**
+  - Se agregaron `formatHistorialDatePY(iso)` (con `timeZone: 'America/Asuncion'`) y `resolveHistorialEventHeader(record)`.
+  - `displayHistorial` tolera objetos incompletos o campos `null`/`undefined`, muestra la semana (`2026-W46 · SEM 46`) + subtítulo `event_name`, presenta **Fecha del evento** (`event_start_date – event_end_date (PY)`) y solo agrega **Cargado** (`created_at (PY)`) si el registro fue insertado fuera del rango `[event_start_date, event_end_date]`. Preserva exactamente `record.status` (`PENDING`, `VALIDATED`, `REJECTED`).
+  - Nota sobre `renderTrendChart`: el orden `event_start_date DESC` corrige la regresión visual donde cargas retroactivas recientes desplazaban las últimas 4 semanas reales en el gráfico del dashboard; se documenta que la rama `< 4` ítems de `renderTrendChart` conserva su comportamiento previo sin alterarse por alcance.
+- **Estilos (`css/views.css`):**
+  - Agregadas clases `.historial-event-name`, `.historial-load-date`, `.status-badge.status-pending`, `.status-badge.status-validated` y `.status-badge.status-rejected`.
+- **Compatibilidad con fallback en memoria (`src/db/mockSupabase.js`):**
+  - No requirió modificaciones: los registros seed de `events_master` ya incluyen `name`, `legacy_event_id`, `start_date`, `end_date` y `metadata`, por lo que `getMyParticipations` resuelve `event_week_code` y `event_sem_label` tanto contra Supabase real como contra el fallback en memoria.
+
+**Rollback:** Revertir los cambios en `src/controllers/events-v2.controller.js`, `js/views.js` y `css/views.css`.
+

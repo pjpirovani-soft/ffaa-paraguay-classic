@@ -893,11 +893,13 @@ Elimina una participación.
 
 #### `GET /api/events-v2/mine`
 
-Historial de participaciones del piloto autenticado (BL-028, v4.7.3).
+Historial de participaciones del piloto autenticado (BL-028, v4.7.3; enriquecido con semana y fechas reales del evento en v4.9.5).
 
 - **Acceso:** Autenticado (`requireAuth`).
-- **Query Params:** `?limit=N&type=SQUADRON&status=CLOSED` (todos opcionales).
-- **Payload:** retrocompatible con el legacy `/api/performances/my-history`.
+- **Query Params:** `?limit=N&type=SQUADRON&status=CLOSED` (todos opcionales, `limit` máx. `200`).
+- **Ordenamiento:** Cronológico descendente por fecha real del evento (`event_start_date`, con fallback `event_end_date` y desempate por `created_at`) para que cargas retroactivas / backfill aparezcan en su semana correspondiente.
+- **Payload:** retrocompatible con el legacy `/api/performances/my-history`. Mantiene intactos `status` (`PENDING` | `VALIDATED` | `REJECTED`) y `computed_points`.
+- **Campos de semana/fecha añadidos desde `events_master`:** `event_start_date`, `event_end_date`, `event_legacy_id`, `event_week_code` (ej. `"2026-W46"`), `event_sem_label` (ej. `"SEM 46"`).
 - **Response Exitosa (200 OK):**
   ```json
   {
@@ -909,9 +911,15 @@ Historial de participaciones del piloto autenticado (BL-028, v4.7.3).
         "event_name": "Squadron Event 2026-W38",
         "event_type": "SQUADRON",
         "event_status": "CLOSED",
+        "event_start_date": "2026-09-17T12:00:00Z",
+        "event_end_date": "2026-09-21T11:59:59Z",
+        "event_legacy_id": "2026-09 · SEM 38 - SQ",
+        "event_week_code": "2026-W38",
+        "event_sem_label": "SEM 38",
         "tokens": 185,
         "days_connected": 6,
         "computed_points": 185,
+        "status": "PENDING",
         "perf_status": "VERDE",
         "created_at": "2026-09-21T14:30:00Z"
       }

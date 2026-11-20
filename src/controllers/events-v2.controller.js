@@ -1180,6 +1180,117 @@ export const deleteParticipation = async (req, res) => {
  *
  * @since v4.7.3 (BL-028)
  */
+/**
+ * Resuelve el código de semana ISO (ej. "2026-W46") y etiqueta de semana ("SEM 46")
+ * de forma segura a partir de un registro de events_master.
+ * Prioridad:
+ *   1. metadata.iso_year + metadata.iso_week
+ *   2. Patrón YYYY-Www en legacy_event_id o name
+ *   3. Año (20xx) + SEM NN en legacy_event_id o name
+ *   4. Fallback de semana ISO calculado desde start_date (o end_date) en hora PY (UTC-3)
+ *
+ * @param {Object|null|undefined} ev
+ * @returns {{ event_week_code: string|null, event_sem_label: string|null }}
+ */
+export function resolveEventWeekInfo(ev) {
+  if (!ev || typeof ev !== 'object') {
+    return { event_week_code: null, event_sem_label: null };
+  }
+
+  let meta = {};
+  if (ev.metadata && typeof ev.metadata === 'object') {
+    meta = ev.metadata;
+  } else if (typeof ev.metadata === 'string') {
+    try {
+      const parsed = JSON.parse(ev.metadata);
+      if (parsed && typeof parsed === 'object') meta = parsed;
+    } catch (_) {
+      meta = {};
+    }
+  }
+
+  const metaYear = Number(meta.iso_year);
+  const metaWeek = Number(meta.iso_week);
+  let isoYear = (Number.isInteger(metaYear) && metaYear >= 2020 && metaYear <= 2100) ? metaYear : null;
+  let isoWeek = (Number.isInteger(metaWeek) && metaWeek >= 1 && metaWeek <= 53) ? metaWeek : null;
+
+  const legacyText = typeof ev.legacy_event_id === 'string' ? ev.legacy_event_id : '';
+  const nameText = typeof ev.name === 'string' ? ev.name : '';
+  const candidates = [legacyText, nameText];
+
+  // 2. Patrón explícito YYYY-Www en legacy_event_id o name
+  if (!isoYear || !isoWeek) {
+    for (const txt of candidates) {
+      const wMatch = txt.match(/\b(20\d{2})-W0?(\d{1,2})\b/i);
+      if (wMatch) {
+        const y = Number(wMatch[1]);
+        const w = Number(wMatch[2]);
+        if (y >= 2020 && y <= 2100 && w >= 1 && w <= 53) {
+          isoYear = y;
+          isoWeek = w;
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Año + SEM NN en legacy_event_id o name (ej. "2026-08 · SEM 33 - SQ")
+  let explicitSemNumber = null;
+  for (const txt of candidates) {
+    const semMatch = txt.match(/\bSEM\s*0*(\d{1,2})\b/i);
+    if (semMatch) {
+      const semNum = Number(semMatch[1]);
+      if (semNum >= 1 && semNum <= 53) {
+        explicitSemNumber = semNum;
+        if (!isoYear || !isoWeek) {
+          const yearMatch = txt.match(/\b(20\d{2})\b/);
+          if (yearMatch) {
+            isoYear = Number(yearMatch[1]);
+            isoWeek = semNum;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // 4. Fallback seguro: semana ISO desde start_date (o end_date) en hora PY (UTC-3 fija)
+  if (!isoYear || !isoWeek) {
+    const refDateRaw = ev.start_date || ev.end_date || null;
+    if (refDateRaw) {
+      const refMs = new Date(refDateRaw).getTime();
+      if (!Number.isNaN(refMs)) {
+        const pyDate = new Date(refMs - 3 * 3600 * 1000);
+        const d = new Date(Date.UTC(
+          pyDate.getUTCFullYear(),
+          pyDate.getUTCMonth(),
+          pyDate.getUTCDate()
+        ));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const calcYear = d.getUTCFullYear();
+        const yearStart = new Date(Date.UTC(calcYear, 0, 1));
+        const calcWeek = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        if (Number.isInteger(calcYear) && Number.isInteger(calcWeek) && calcWeek >= 1 && calcWeek <= 53) {
+          isoYear = calcYear;
+          isoWeek = calcWeek;
+        }
+      }
+    }
+  }
+
+  const event_week_code = (isoYear && isoWeek)
+    ? `${isoYear}-W${String(isoWeek).padStart(2, '0')}`
+    : null;
+
+  const semValue = explicitSemNumber || isoWeek || null;
+  const event_sem_label = semValue
+    ? `SEM ${String(semValue).padStart(2, '0')}`
+    : null;
+
+  return { event_week_code, event_sem_label };
+}
+
 export const getMyParticipations = async (req, res) => {
   try {
     const supabase = getSupabase();
@@ -1231,13 +1342,14 @@ export const getMyParticipations = async (req, res) => {
       ? req.query.status.toUpperCase().trim()
       : null;
 
-    // 3. Query participaciones del piloto
+    // 3. Query participaciones del piloto (hasta 200 para reordenar por fecha real del evento)
+    const fetchLimit = 200;
     const { data: participations, error: pErr } = await supabase
       .from('event_participations')
       .select('*')
       .eq('user_id', callerUUID)
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(fetchLimit);
 
     if (pErr) throw pErr;
 
@@ -1256,7 +1368,7 @@ export const getMyParticipations = async (req, res) => {
 
     const { data: events, error: eErr } = await supabase
       .from('events_master')
-      .select('id, name, type, status, start_date, end_date')
+      .select('id, name, type, status, start_date, end_date, legacy_event_id, metadata')
       .in('id', eventIds);
 
     if (eErr) throw eErr;
@@ -1288,10 +1400,11 @@ export const getMyParticipations = async (req, res) => {
       return 'NEGRO';
     };
 
-    // 7. Merge + normalizar para el frontend
+    // 7. Merge + normalizar para el frontend (sin alterar status ni computed_points)
     const result = filtered.map(p => {
       const ev = eventMap.get(p.event_id) || {};
-      const data = p.data || {};
+      const data = (p.data && typeof p.data === 'object') ? p.data : {};
+      const { event_week_code, event_sem_label } = resolveEventWeekInfo(ev);
 
       const tokens = data.tokens ?? p.computed_points ?? 0;
       const days = data.days_connected ?? 0;
@@ -1309,6 +1422,9 @@ export const getMyParticipations = async (req, res) => {
         event_status: ev.status || null,
         event_start_date: ev.start_date || null,
         event_end_date: ev.end_date || null,
+        event_legacy_id: ev.legacy_event_id || null,
+        event_week_code,
+        event_sem_label,
 
         // Datos de la participación (retrocompatibles con legacy)
         tokens,
@@ -1327,10 +1443,26 @@ export const getMyParticipations = async (req, res) => {
       };
     });
 
+    // 8. Ordenar cronológicamente por fecha real del evento (DESC) con desempate por created_at
+    const toSafeMs = (val) => {
+      if (!val) return 0;
+      const ms = new Date(val).getTime();
+      return Number.isNaN(ms) ? 0 : ms;
+    };
+
+    result.sort((a, b) => {
+      const ta = toSafeMs(a.event_start_date || a.event_end_date || a.created_at);
+      const tb = toSafeMs(b.event_start_date || b.event_end_date || b.created_at);
+      if (tb !== ta) return tb - ta;
+      return toSafeMs(b.created_at) - toSafeMs(a.created_at);
+    });
+
+    const limitedResult = result.slice(0, limit);
+
     return res.json({
       success: true,
-      participations: result,
-      total: result.length,
+      participations: limitedResult,
+      total: limitedResult.length,
       filters: { limit, type: typeFilter, status: statusFilter }
     });
   } catch (error) {

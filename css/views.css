@@ -351,9 +351,51 @@
 }
 
 .historial-item h4 {
-  margin-bottom: var(--sp-3);
+  margin-bottom: var(--sp-2);
   color: var(--color-secondary);
   font-size: var(--fs-base);
+}
+
+.historial-event-name {
+  font-size: var(--fs-xs);
+  color: #94a3b8;
+  margin-bottom: var(--sp-3);
+}
+
+.historial-load-date {
+  font-size: var(--fs-xs);
+  color: #94a3b8;
+}
+
+.status-badge.status-pending {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.status-badge.status-pending::before {
+  background: #fbbf24;
+}
+
+.status-badge.status-validated {
+  background: var(--status-verde-bg);
+  color: var(--status-verde-text);
+  border-color: var(--status-verde-border);
+  box-shadow: 0 0 10px var(--status-verde-glow);
+}
+.status-badge.status-validated::before {
+  background: var(--status-verde-text);
+  box-shadow: 0 0 6px var(--status-verde-text);
+}
+
+.status-badge.status-rejected {
+  background: var(--status-rojo-bg);
+  color: var(--status-rojo-text);
+  border-color: var(--status-rojo-border);
+  box-shadow: 0 0 10px var(--status-rojo-glow);
+}
+.status-badge.status-rejected::before {
+  background: var(--status-rojo-text);
+  box-shadow: 0 0 6px var(--status-rojo-text);
 }
 
 /* ── PROFILE VIEW ───────────────────────── */

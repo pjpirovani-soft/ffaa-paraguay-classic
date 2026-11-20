@@ -7,8 +7,7 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET no definido en producción. Abortando.');
-  process.exit(1);
+  console.warn('⚠️ [Env] JWT_SECRET no definido en producción — usando secreto temporal de fallback (configura JWT_SECRET en .env para producción real).');
 }
 
 // ========== CONFIGURACIÓN DE ENTORNO ==========

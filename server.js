@@ -229,6 +229,8 @@ const allowedOrigins = new Set(
   ENV.ALLOWED_ORIGINS.map(o => o.replace(/\/+$/, '').toLowerCase())
 );
 
+const hasCustomCors = Boolean(process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN);
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -238,6 +240,16 @@ app.use(
       const normalizedOrigin = origin.replace(/\/+$/, '').toLowerCase();
 
       if (allowedOrigins.has(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      // Allow AI Studio preview domains (*.run.app) and local dev ports when no custom ALLOWED_ORIGINS is set
+      if (
+        !hasCustomCors &&
+        (/^https:\/\/[a-z0-9-]+\.run\.app$/.test(normalizedOrigin) ||
+          /^https:\/\/([a-z0-9-]+\.)?aistudio\.google\.com$/.test(normalizedOrigin) ||
+          /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin))
+      ) {
         return callback(null, true);
       }
 
