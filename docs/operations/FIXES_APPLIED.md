@@ -1594,8 +1594,11 @@ consumen deben tolerar strings numéricos y convertirlos.
   - Nota sobre `renderTrendChart`: el orden `event_start_date DESC` corrige la regresión visual donde cargas retroactivas recientes desplazaban las últimas 4 semanas reales en el gráfico del dashboard; se documenta que la rama `< 4` ítems de `renderTrendChart` conserva su comportamiento previo sin alterarse por alcance.
 - **Estilos (`css/views.css`):**
   - Agregadas clases `.historial-event-name`, `.historial-load-date`, `.status-badge.status-pending`, `.status-badge.status-validated` y `.status-badge.status-rejected`.
+- **Backend (`src/controllers/performances.controller.js`):**
+  - `getMyHistory` (`/api/performances/history` y `/api/performances/my-history`) ahora reutiliza `resolveEventWeekInfo` desde `./events-v2.controller.js`, consulta `.from('events_master').select('*').in('id', eventIds)` de forma segura (tolerando errores o falta de coincidencias sin romper el endpoint) y enriquece cada registro preservando `...row` con `event_name`, `event_legacy_id`, `event_week_code`, `event_sem_label`, `event_start_date` y `event_end_date`, respondiendo `{ history: enriched, performances: enriched }`.
 - **Compatibilidad con fallback en memoria (`src/db/mockSupabase.js`):**
   - No requirió modificaciones: los registros seed de `events_master` ya incluyen `name`, `legacy_event_id`, `start_date`, `end_date` y `metadata`, por lo que `getMyParticipations` resuelve `event_week_code` y `event_sem_label` tanto contra Supabase real como contra el fallback en memoria.
 
-**Rollback:** Revertir los cambios en `src/controllers/events-v2.controller.js`, `js/views.js` y `css/views.css`.
+**Rollback:** Revertir los cambios en `src/controllers/events-v2.controller.js`, `src/controllers/performances.controller.js`, `js/views.js` y `css/views.css`.
+
 

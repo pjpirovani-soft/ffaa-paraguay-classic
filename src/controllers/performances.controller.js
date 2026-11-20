@@ -1,6 +1,7 @@
 import { getSupabase } from '../db/supabase.js';
 import { PerformanceSchema } from '../utils/schemas.js';
 import { buildSanitizedCSV } from '../utils/csv.js';
+import { resolveEventWeekInfo } from './events-v2.controller.js';
 
 import { logger } from '../config/logger.js';
 // ========== FUNCIÓN AUXILIAR PARA CONSULTAS TIPADAS ==========
@@ -202,7 +203,48 @@ export async function getMyHistory(req, res, next) {
 
     if (error) throw error;
 
-    res.json({ history: data || [], performances: data || [] });
+    const rows = Array.isArray(data) ? data : [];
+    const eventIds = [...new Set(rows.map(row => row?.event_id).filter(Boolean))];
+    const eventMap = new Map();
+
+    if (eventIds.length > 0) {
+      try {
+        const { data: events, error: evError } = await supabase
+          .from('events_master')
+          .select('*')
+          .in('id', eventIds);
+
+        if (evError) {
+          logger.warn('⚠️ [Performances] No se pudo enriquecer historial desde events_master:', evError.message);
+        } else if (Array.isArray(events)) {
+          for (const ev of events) {
+            if (ev && ev.id != null) {
+              eventMap.set(String(ev.id), ev);
+            }
+          }
+        }
+      } catch (evErr) {
+        logger.warn('⚠️ [Performances] Error consultando events_master en getMyHistory:', evErr?.message || evErr);
+      }
+    }
+
+    const enriched = rows.map(row => {
+      if (!row || typeof row !== 'object') return row;
+      const ev = row.event_id != null ? (eventMap.get(String(row.event_id)) || null) : null;
+      const weekInfo = resolveEventWeekInfo(ev);
+
+      return {
+        ...row,
+        event_name: row.event_name ?? ev?.name ?? null,
+        event_legacy_id: row.event_legacy_id ?? ev?.legacy_event_id ?? null,
+        event_week_code: row.event_week_code ?? weekInfo.event_week_code ?? null,
+        event_sem_label: row.event_sem_label ?? weekInfo.event_sem_label ?? null,
+        event_start_date: row.event_start_date ?? ev?.start_date ?? null,
+        event_end_date: row.event_end_date ?? ev?.end_date ?? null
+      };
+    });
+
+    res.json({ history: enriched, performances: enriched });
   } catch (err) {
     next(err);
   }
